@@ -2,7 +2,10 @@ module github.com/transparentt/login-server
 
 go 1.19
 
-require gopkg.in/rethinkdb/rethinkdb-go.v6 v6.2.2
+require (
+	github.com/oklog/ulid/v2 v2.1.0
+	gopkg.in/rethinkdb/rethinkdb-go.v6 v6.2.2
+)
 
 require (
 	github.com/golang/protobuf v1.3.4 // indirect

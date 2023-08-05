@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/transparentt/login-server/config"
@@ -11,7 +10,6 @@ import (
 
 func main() {
 	config := config.LoadConfig()
-	fmt.Println(config)
 
 	session, err := r.Connect(r.ConnectOpts{
 		Address:  config.Address,

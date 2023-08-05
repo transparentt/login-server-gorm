@@ -1,3 +1,3 @@
 package migration
 
-const version = 1
+const wantedVersion = 2
