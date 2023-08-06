@@ -67,7 +67,7 @@ func CheckSession(rSession *r.Session, userULID string, accessToken string) (*Se
 	if err != nil {
 		return nil, err
 	}
-	if session == nil {
+	if session.ID == "" {
 		return nil, errors.New("no session")
 	}
 
@@ -116,6 +116,10 @@ func (l Login) Login(rSession *r.Session) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if user.ID == "" {
+		return nil, errors.New("not found")
+	}
+
 	err = bcrypt.CompareHashAndPassword([]byte(user.HashedPassword), []byte(l.Password))
 	if err != nil {
 		return nil, err
@@ -132,7 +136,7 @@ func (l Login) Login(rSession *r.Session) (*Session, error) {
 	}
 	expired := time.Now().Add(time.Hour * 6)
 
-	if session == nil {
+	if session.ID == "" {
 		session := NewSession(user.ID, string(accessToken), expired)
 		_, err = session.Create(rSession)
 		if err != nil {
