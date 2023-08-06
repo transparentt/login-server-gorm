@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"errors"
 	"time"
 
 	"github.com/transparentt/login-server/config"
@@ -59,6 +60,41 @@ func UpdateSession(rSession *r.Session, session Session) (*Session, error) {
 	}
 
 	return &session, nil
+}
+
+func CheckSession(rSession *r.Session, userULID string, accessToken string) (*Session, error) {
+	session, err := GetSessionByUserULID(rSession, userULID)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, errors.New("no session")
+	}
+
+	if session.AccessToken != accessToken {
+		return nil, errors.New("wrong access token")
+	}
+
+	if session.Expired.Before(time.Now()) {
+		return nil, errors.New("expired access token")
+	}
+
+	// Update session with the new access token and expired date.
+	newAccessToken, err := bcrypt.GenerateFromPassword([]byte(time.Now().String()), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+	newExpired := time.Now().Add(time.Hour * 6)
+
+	session.AccessToken = string(newAccessToken)
+	session.Expired = newExpired
+
+	_, err = UpdateSession(rSession, *session)
+	if err != nil {
+		return nil, err
+	}
+
+	return session, nil
 }
 
 type Login struct {
