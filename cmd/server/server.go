@@ -4,12 +4,11 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
-	"github.com/transparentt/login-server/config"
+	"github.com/labstack/echo"
+	"github.com/labstack/echo/middleware"
 	"github.com/transparentt/login-server/pkg/rethinkdb/logic"
-	"github.com/transparentt/login-server/pkg/rethinkdb/migration"
-	r "gopkg.in/rethinkdb/rethinkdb-go.v6"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type SignUp struct {
@@ -23,17 +22,15 @@ type Login struct {
 }
 
 func main() {
-	config := config.LoadConfig()
 
-	session, err := r.Connect(r.ConnectOpts{
-		Address:  config.Address,
-		Database: config.Database,
-	})
+	dsn := "host=localhost user=user password=password dbname=dbname port=5432 sslmode=disable TimeZone=Asia/Tokyo"
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	migrate(session)
+	db.AutoMigrate(&logic.User{})
+	db.AutoMigrate(&logic.Session{})
 
 	// Echo instance
 	e := echo.New()
@@ -45,13 +42,13 @@ func main() {
 	// Routes
 	e.GET("/", health)
 	e.POST("/users", func(c echo.Context) error {
-		return signUp(c, session)
+		return signUp(c, db)
 	})
 	e.POST("/login", func(c echo.Context) error {
-		return login(c, session)
+		return login(c, db)
 	})
 	e.GET("/secret", func(c echo.Context) error {
-		return secret(c, session)
+		return secret(c, db)
 	})
 
 	// Start server
@@ -64,16 +61,13 @@ func health(c echo.Context) error {
 	return c.String(http.StatusOK, "OK")
 }
 
-func signUp(c echo.Context, rSession *r.Session) error {
+func signUp(c echo.Context, db *gorm.DB) error {
 	signUp := new(SignUp)
 	if err := c.Bind(signUp); err != nil {
 		return err
 	}
 
-	existing, err := logic.GetUserByUserName(rSession, signUp.UserName)
-	if err != nil {
-		return err
-	}
+	existing, _ := logic.GetUserByUserName(db, signUp.UserName)
 
 	if existing.ID != "" {
 		return c.String(http.StatusNotAcceptable, "NG")
@@ -84,7 +78,7 @@ func signUp(c echo.Context, rSession *r.Session) error {
 		return err
 	}
 
-	_, err = user.Create(rSession)
+	err = user.Create(db)
 	if err != nil {
 		return err
 	}
@@ -92,14 +86,14 @@ func signUp(c echo.Context, rSession *r.Session) error {
 	return c.String(http.StatusCreated, "OK")
 }
 
-func login(c echo.Context, rSession *r.Session) error {
+func login(c echo.Context, db *gorm.DB) error {
 	login := new(Login)
 	if err := c.Bind(login); err != nil {
 		return err
 	}
 
 	newLogin := logic.NewLogin(login.UserName, login.PassWord)
-	session, err := newLogin.Login(rSession)
+	session, err := newLogin.Login(db)
 	if err != nil {
 		return err
 	}
@@ -111,7 +105,7 @@ func login(c echo.Context, rSession *r.Session) error {
 	c.SetCookie(cookie)
 
 	cookie2 := new(http.Cookie)
-	cookie2.Name = "user_ulid"
+	cookie2.Name = "user_ul_id"
 	cookie2.Value = session.UserULID
 	cookie2.Expires = session.Expired
 	c.SetCookie(cookie2)
@@ -119,8 +113,8 @@ func login(c echo.Context, rSession *r.Session) error {
 	return c.String(http.StatusOK, "OK")
 }
 
-func secret(c echo.Context, rSession *r.Session) error {
-	user_ulid, err := c.Cookie("user_ulid")
+func secret(c echo.Context, db *gorm.DB) error {
+	user_ulid, err := c.Cookie("user_ul_id")
 	if err != nil {
 		return err
 	}
@@ -130,7 +124,7 @@ func secret(c echo.Context, rSession *r.Session) error {
 		return err
 	}
 
-	session, err := logic.CheckSession(rSession, user_ulid.Value, access_token.Value)
+	session, err := logic.CheckSession(db, user_ulid.Value, access_token.Value)
 	if err != nil {
 		return err
 	}
@@ -142,14 +136,10 @@ func secret(c echo.Context, rSession *r.Session) error {
 	c.SetCookie(cookie)
 
 	cookie2 := new(http.Cookie)
-	cookie2.Name = "user_ulid"
+	cookie2.Name = "user_ul_id"
 	cookie2.Value = session.UserULID
 	cookie2.Expires = session.Expired
 	c.SetCookie(cookie2)
 
 	return c.String(http.StatusOK, "Secret OK")
-}
-
-func migrate(session *r.Session) {
-	migration.Migrate(session)
 }

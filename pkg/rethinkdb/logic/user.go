@@ -1,15 +1,19 @@
 package logic
 
 import (
-	"github.com/transparentt/login-server/config"
+	"time"
+
 	"golang.org/x/crypto/bcrypt"
-	r "gopkg.in/rethinkdb/rethinkdb-go.v6"
+	"gorm.io/gorm"
 )
 
 type User struct {
-	ID             string `json:"id" rethinkdb:"id"`
-	UserName       string `json:"user_name" rethinkdb:"user_name"`
-	HashedPassword string `json:"hashed_password" rethinkdb:"hashed_password"`
+	ID             string         `json:"id" gorm:"primaryKey"`
+	UserName       string         `json:"user_name"`
+	HashedPassword string         `json:"hashed_password"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	DeletedAt      gorm.DeletedAt `gorm:"index"`
 }
 
 func NewUser(userName string, password string) (*User, error) {
@@ -26,30 +30,17 @@ func NewUser(userName string, password string) (*User, error) {
 	return &user, nil
 }
 
-func (user *User) Create(session *r.Session) (*User, error) {
-	config := config.LoadConfig()
+func (user *User) Create(db *gorm.DB) error {
 	user.ID = NewULID().String()
-
-	_, err := r.DB(config.Database).Table(UserTable).Insert(user).RunWrite(session)
-	if err != nil {
-		return nil, err
-	}
-
-	return user, err
+	result := db.Create(user)
+	return result.Error
 
 }
 
-func GetUserByUserName(session *r.Session, userName string) (*User, error) {
-	config := config.LoadConfig()
+func GetUserByUserName(db *gorm.DB, userName string) (*User, error) {
+	var user User
 
-	cursor, err := r.DB(config.Database).Table(UserTable).Filter(r.Row.Field("user_name").Eq(userName)).Run(session)
-	if err != nil {
-		return nil, err
-	}
+	result := db.Where("user_name = ?", userName).First(&user)
 
-	user := User{}
-	cursor.One(&user)
-	cursor.Close()
-
-	return &user, nil
+	return &user, result.Error
 }

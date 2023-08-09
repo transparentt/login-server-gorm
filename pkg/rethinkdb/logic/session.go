@@ -4,16 +4,18 @@ import (
 	"errors"
 	"time"
 
-	"github.com/transparentt/login-server/config"
 	"golang.org/x/crypto/bcrypt"
-	r "gopkg.in/rethinkdb/rethinkdb-go.v6"
+	"gorm.io/gorm"
 )
 
 type Session struct {
-	ID          string    `json:"id" rethinkdb:"id"`
-	UserULID    string    `json:"user_ulid" rethinkdb:"user_ulid"`
-	AccessToken string    `json:"access_token" rethinkdb:"access_token"`
-	Expired     time.Time `json:"expired" rethinkdb:"expired"`
+	ID          string         `json:"id" gorm:"primaryKey"`
+	UserULID    string         `json:"user_ul_id"`
+	AccessToken string         `json:"access_token"`
+	Expired     time.Time      `json:"expired"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index"`
 }
 
 func NewSession(userULID string, accessToken string, expired time.Time) Session {
@@ -24,49 +26,31 @@ func NewSession(userULID string, accessToken string, expired time.Time) Session 
 	}
 }
 
-func (s *Session) Create(rSession *r.Session) (*Session, error) {
-	config := config.LoadConfig()
+func (s *Session) Create(db *gorm.DB) error {
 	s.ID = NewULID().String()
+	result := db.Create(s)
+	return result.Error
 
-	_, err := r.DB(config.Database).Table(SessionTable).Insert(s).RunWrite(rSession)
-	if err != nil {
-		return nil, err
-	}
-
-	return s, err
 }
 
-func GetSessionByUserULID(rSession *r.Session, userULID string) (*Session, error) {
-	config := config.LoadConfig()
+func GetSessionByUserULID(db *gorm.DB, userULID string) (*Session, error) {
 
-	cursor, err := r.DB(config.Database).Table(SessionTable).Filter(r.Row.Field("user_ulid").Eq(userULID)).Run(rSession)
-	if err != nil {
-		return nil, err
-	}
+	var session Session
 
-	session := Session{}
-	cursor.One(&session)
-	cursor.Close()
+	result := db.Where("user_ul_id = ?", userULID).First(&session)
 
-	return &session, nil
+	return &session, result.Error
 }
 
-func UpdateSession(rSession *r.Session, session Session) (*Session, error) {
-	config := config.LoadConfig()
+func UpdateSession(db *gorm.DB, session Session) (*Session, error) {
 
-	_, err := r.DB(config.Database).Table(SessionTable).Get(session.ID).Update(session).RunWrite(rSession)
-	if err != nil {
-		return nil, err
-	}
+	result := db.Save(&session)
 
-	return &session, nil
+	return &session, result.Error
 }
 
-func CheckSession(rSession *r.Session, userULID string, accessToken string) (*Session, error) {
-	session, err := GetSessionByUserULID(rSession, userULID)
-	if err != nil {
-		return nil, err
-	}
+func CheckSession(db *gorm.DB, userULID string, accessToken string) (*Session, error) {
+	session, err := GetSessionByUserULID(db, userULID)
 	if session.ID == "" {
 		return nil, errors.New("no session")
 	}
@@ -89,7 +73,7 @@ func CheckSession(rSession *r.Session, userULID string, accessToken string) (*Se
 	session.AccessToken = string(newAccessToken)
 	session.Expired = newExpired
 
-	_, err = UpdateSession(rSession, *session)
+	_, err = UpdateSession(db, *session)
 	if err != nil {
 		return nil, err
 	}
@@ -109,15 +93,12 @@ func NewLogin(userName string, password string) Login {
 	}
 }
 
-func (l Login) Login(rSession *r.Session) (*Session, error) {
+func (l Login) Login(db *gorm.DB) (*Session, error) {
 
 	// 1. Check Password
-	user, err := GetUserByUserName(rSession, l.UserName)
+	user, err := GetUserByUserName(db, l.UserName)
 	if err != nil {
 		return nil, err
-	}
-	if user.ID == "" {
-		return nil, errors.New("not found")
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.HashedPassword), []byte(l.Password))
@@ -125,10 +106,7 @@ func (l Login) Login(rSession *r.Session) (*Session, error) {
 		return nil, err
 	}
 	// 2. Session Update/Create
-	session, err := GetSessionByUserULID(rSession, user.ID)
-	if err != nil {
-		return nil, err
-	}
+	session, _ := GetSessionByUserULID(db, user.ID)
 
 	accessToken, err := bcrypt.GenerateFromPassword([]byte(time.Now().String()), bcrypt.DefaultCost)
 	if err != nil {
@@ -138,7 +116,7 @@ func (l Login) Login(rSession *r.Session) (*Session, error) {
 
 	if session.ID == "" {
 		session := NewSession(user.ID, string(accessToken), expired)
-		_, err = session.Create(rSession)
+		err = session.Create(db)
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +126,7 @@ func (l Login) Login(rSession *r.Session) (*Session, error) {
 	} else {
 		session.AccessToken = string(accessToken)
 		session.Expired = expired
-		_, err := UpdateSession(rSession, *session)
+		_, err := UpdateSession(db, *session)
 		if err != nil {
 			return nil, err
 		}
